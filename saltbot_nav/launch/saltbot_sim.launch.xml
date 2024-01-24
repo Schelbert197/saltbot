@@ -1,0 +1,17 @@
+<launch>
+    <include file="$(find-pkg-share saltbot_nav)/launch/simulate.launch.xml">
+        <arg name="world" value="saltbot_simple.sdf"/>
+        <arg name="use_rviz" value="false"/>
+    </include>
+
+    <include file="$(find-pkg-share slam_toolbox)/launch/online_async_launch.py">
+    </include>
+
+    <include file="$(find-pkg-share nav2_bringup)/launch/navigation_launch.py">
+        <arg name="params_file" value="$(find-pkg-share saltbot_nav)/config/nav2_params.yaml"/>
+    </include>
+
+    <!-- <node pkg="rviz2" exec="rviz2" args="-d $(find-pkg-share saltbot_nav)/config/saltbot.rviz"/> -->
+
+    <node pkg="saltbot_nav" exec="explore" />
+</launch>
