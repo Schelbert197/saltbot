@@ -10,12 +10,12 @@ class LidarToMapNode(Node):
         self.subscription = self.create_subscription(
             LaserScan,
             # Change 'velodyne_scan' to the actual topic name
-            '/j100_0076/sensors/lidar3d_0/scan',
+            '/sensors/lidar3d_0/scan',
             self.lidar_callback,
             10)
         self.publisher = self.create_publisher(
             OccupancyGrid,
-            'occupancy_grid_map',  # Change 'occupancy_grid_map' to the desired topic name
+            '/map',  # Change 'occupancy_grid_map' to the desired topic name
             10)
 
     def lidar_callback(self, msg):

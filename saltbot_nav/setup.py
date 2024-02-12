@@ -4,7 +4,7 @@ package_name = 'saltbot_nav'
 
 setup(
     name=package_name,
-    version='0.0.0',
+    version='0.0.1',
     packages=find_packages(exclude=['test']),
     data_files=[
         ('share/ament_index/resource_index/packages',
@@ -15,12 +15,13 @@ setup(
     zip_safe=True,
     maintainer='sags',
     maintainer_email='srikanthschelbert2024@u.northwestern.edu',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    description='Allows a robot to spread salt using SLAM',
+    license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'navigator = saltbot_nav.navigator:main'
+            'navigator = saltbot_nav.navigator:main',
+            'laser2grid = saltbot_nav.laser2grid:main'
         ],
     },
 )
