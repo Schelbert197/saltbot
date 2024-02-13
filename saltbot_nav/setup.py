@@ -21,7 +21,9 @@ setup(
     entry_points={
         'console_scripts': [
             'navigator = saltbot_nav.navigator:main',
-            'laser2grid = saltbot_nav.laser2grid:main'
+            'laser2grid = saltbot_nav.laser2grid:main',
+            'map_slicer = saltbot_nav.map_slicer:main',
+            'map_publisher = saltbot_nav.map_publisher:main'
         ],
     },
 )
