@@ -34,7 +34,33 @@ class OccupancyMapSlicer(Node):
         origin_x = msg.info.origin.position.x
         origin_y = msg.info.origin.position.y
 
+        # Publish waypoints ### OLD WAYPOINT CALC
+        # for i in range(msg.info.height):
+        #     for j in range(msg.info.width):
+        #         if map_data[i][j] == 0:  # Unoccupied cell
+        #             # Check if more than 50% of cells within the area of cell_size are unoccupied
+        #             unoccupied_count = 0
+        #             for m in range(int(self.cell_size / resolution)):
+        #                 for n in range(int(self.cell_size / resolution)):
+        #                     if map_data[min(i + m, msg.info.height - 1)][min(j + n, msg.info.width - 1)] == 0:
+        #                         unoccupied_count += 1
+        #             if unoccupied_count > (0.5 * (self.cell_size / resolution) ** 2):
+        #                 # Calculate centroid of unoccupied cell
+        #                 x = origin_x + resolution * (j + 0.5)
+        #                 y = origin_y + resolution * (i + 0.5)
+        #                 # Round the centroid to the nearest multiple of cell_size
+        #                 x_rounded = round(x / self.cell_size) * self.cell_size
+        #                 y_rounded = round(y / self.cell_size) * self.cell_size
+        #                 # Create PointStamped message for waypoint
+        #                 waypoint_msg = PointStamped()
+        #                 waypoint_msg.header = msg.header
+        #                 waypoint_msg.point.x = x_rounded
+        #                 waypoint_msg.point.y = y_rounded
+        #                 waypoint_msg.point.z = 0.0
+        #                 waypoints.append(waypoint_msg)
+
         # Publish waypoints
+        visited_coordinates = set()  # Initialize set to store visited coordinates
         for i in range(msg.info.height):
             for j in range(msg.info.width):
                 if map_data[i][j] == 0:  # Unoccupied cell
@@ -51,13 +77,17 @@ class OccupancyMapSlicer(Node):
                         # Round the centroid to the nearest multiple of cell_size
                         x_rounded = round(x / self.cell_size) * self.cell_size
                         y_rounded = round(y / self.cell_size) * self.cell_size
-                        # Create PointStamped message for waypoint
-                        waypoint_msg = PointStamped()
-                        waypoint_msg.header = msg.header
-                        waypoint_msg.point.x = x_rounded
-                        waypoint_msg.point.y = y_rounded
-                        waypoint_msg.point.z = 0.0
-                        waypoints.append(waypoint_msg)
+                        # Check if coordinates are not already visited
+                        if (x_rounded, y_rounded) not in visited_coordinates:
+                            # Create PointStamped message for waypoint
+                            waypoint_msg = PointStamped()
+                            waypoint_msg.header = msg.header
+                            waypoint_msg.point.x = x_rounded
+                            waypoint_msg.point.y = y_rounded
+                            waypoint_msg.point.z = 0.0
+                            waypoints.append(waypoint_msg)
+                            # Add coordinates to visited set
+                            visited_coordinates.add((x_rounded, y_rounded))
 
         self.get_logger().info(f'Length of waypoints: {len(waypoints)}')
         # # Publish occupancy grid markers
@@ -117,7 +147,7 @@ class OccupancyMapSlicer(Node):
             marker.color.r = 0.5  # Purple color
             marker.color.g = 0.0
             marker.color.b = 0.5
-            marker.color.a = 1.0  # Fully opaque
+            marker.color.a = 0.1 + (0.8*(idx/len(waypoints)))  # Fully opaque
             marker_array.markers.append(marker)
 
         self.marker_publisher.publish(marker_array)
