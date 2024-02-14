@@ -4,6 +4,7 @@ from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import PointStamped, Pose, PoseStamped, Quaternion
 from visualization_msgs.msg import Marker, MarkerArray
 import numpy as np
+from std_srvs.srv import Empty
 
 
 class OccupancyMapSlicer(Node):
@@ -24,16 +25,21 @@ class OccupancyMapSlicer(Node):
             MarkerArray,
             '/visualization_markers',
             10)
+        self.waypoint_srv = self.create_service(
+            Empty, "create_waypoints", self.waypoints_callback)
 
     def occupancy_map_callback(self, msg):
-        # Extract waypoints from occupancy grid map
-        waypoints = []
-        map_data = np.array(msg.data).reshape(
-            (msg.info.height, msg.info.width))
-        resolution = msg.info.resolution
-        origin_x = msg.info.origin.position.x
-        origin_y = msg.info.origin.position.y
 
+        self.map_data = np.array(msg.data).reshape(
+            (msg.info.height, msg.info.width))
+        self.resolution = msg.info.resolution
+        self.origin_x = msg.info.origin.position.x
+        self.origin_y = msg.info.origin.position.y
+        self.height = msg.info.height
+        self.width = msg.info.width
+        self.msg_header = msg.header
+
+    def waypoints_callback(self, request, response):
         # Publish waypoints ### OLD WAYPOINT CALC
         # for i in range(msg.info.height):
         #     for j in range(msg.info.width):
@@ -59,21 +65,24 @@ class OccupancyMapSlicer(Node):
         #                 waypoint_msg.point.z = 0.0
         #                 waypoints.append(waypoint_msg)
 
+        self.get_logger().info('Creating waypoints...')
+        # Extract waypoints from occupancy grid map
+        waypoints = []
         # Publish waypoints
         visited_coordinates = set()  # Initialize set to store visited coordinates
-        for i in range(msg.info.height):
-            for j in range(msg.info.width):
-                if map_data[i][j] == 0:  # Unoccupied cell
+        for i in range(self.height):
+            for j in range(self.width):
+                if self.map_data[i][j] == 0:  # Unoccupied cell
                     # Check if more than 50% of cells within the area of cell_size are unoccupied
                     unoccupied_count = 0
-                    for m in range(int(self.cell_size / resolution)):
-                        for n in range(int(self.cell_size / resolution)):
-                            if map_data[min(i + m, msg.info.height - 1)][min(j + n, msg.info.width - 1)] == 0:
+                    for m in range(int(self.cell_size / self.resolution)):
+                        for n in range(int(self.cell_size / self.resolution)):
+                            if self.map_data[min(i + m, self.height - 1)][min(j + n, self.width - 1)] == 0:
                                 unoccupied_count += 1
-                    if unoccupied_count > (0.5 * (self.cell_size / resolution) ** 2):
+                    if unoccupied_count > (0.9 * (self.cell_size / self.resolution) ** 2):
                         # Calculate centroid of unoccupied cell
-                        x = origin_x + resolution * (j + 0.5)
-                        y = origin_y + resolution * (i + 0.5)
+                        x = self.origin_x + self.resolution * (j + 0.5)
+                        y = self.origin_y + self.resolution * (i + 0.5)
                         # Round the centroid to the nearest multiple of cell_size
                         x_rounded = round(x / self.cell_size) * self.cell_size
                         y_rounded = round(y / self.cell_size) * self.cell_size
@@ -81,7 +90,7 @@ class OccupancyMapSlicer(Node):
                         if (x_rounded, y_rounded) not in visited_coordinates:
                             # Create PointStamped message for waypoint
                             waypoint_msg = PointStamped()
-                            waypoint_msg.header = msg.header
+                            waypoint_msg.header = self.msg_header
                             waypoint_msg.point.x = x_rounded
                             waypoint_msg.point.y = y_rounded
                             waypoint_msg.point.z = 0.0
@@ -248,6 +257,7 @@ class OccupancyMapSlicer(Node):
     #         marker_array.markers.append(marker)
 
     #     self.marker_publisher.publish(marker_array)
+        return response
 
 
 def main(args=None):
