@@ -10,7 +10,8 @@ from std_srvs.srv import Empty
 class OccupancyMapSlicer(Node):
     def __init__(self):
         super().__init__('occupancy_map_slicer')
-        self.cell_size = 1.0
+        self.cell_size = 0.5
+        self.get_logger().info(f"Cell size: {self.cell_size}")
 
         self.subscription = self.create_subscription(
             OccupancyGrid,
@@ -38,6 +39,7 @@ class OccupancyMapSlicer(Node):
         self.height = msg.info.height
         self.width = msg.info.width
         self.msg_header = msg.header
+        self.get_logger().info(f"Got map with height {self.height}")
 
     def waypoints_callback(self, request, response):
         # Publish waypoints ### OLD WAYPOINT CALC
@@ -79,7 +81,7 @@ class OccupancyMapSlicer(Node):
                         for n in range(int(self.cell_size / self.resolution)):
                             if self.map_data[min(i + m, self.height - 1)][min(j + n, self.width - 1)] == 0:
                                 unoccupied_count += 1
-                    if unoccupied_count > (0.9 * (self.cell_size / self.resolution) ** 2):
+                    if unoccupied_count > (0.5 * (self.cell_size / self.resolution) ** 2):
                         # Calculate centroid of unoccupied cell
                         x = self.origin_x + self.resolution * (j + 0.5)
                         y = self.origin_y + self.resolution * (i + 0.5)
