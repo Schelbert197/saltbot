@@ -1,7 +1,8 @@
 <launch>
-    <node pkg="rviz2" exec="rviz2" args="-d $(find-pkg-share saltbot_nav)/config/saltbot.rviz"/>
+    <node pkg="nav2_bringup" exec="rviz_launch.py"/>
 
     <node pkg="saltbot_nav" exec="map_slicer" />
 
     <include file="$(find-pkg-share saltbot_nav)/launch/jackal_nav.launch.py"/>
+    <include file="$(find-pkg-share saltbot_nav)/launch/localization_launch.py"/>
 </launch>
