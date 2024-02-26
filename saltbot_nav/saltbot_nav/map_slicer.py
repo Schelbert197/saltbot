@@ -114,15 +114,6 @@ class OccupancyMapSlicer(Node):
         # Extract waypoints from occupancy grid map
         self.waypoints = []
         # Publish waypoints
-        visited_coordinates = set()  # Initialize set to store visited coordinates
-        end = False
-        # while end = False:
-        #     if
-        print(self.origin_x)
-        print(self.origin_y)
-        print(self.height)
-        print(self.width)
-        print(self.resolution)
 
         total_cells_width = int(self.width/(self.cell_size / self.resolution))
         total_cells_height = int(
@@ -141,8 +132,6 @@ class OccupancyMapSlicer(Node):
                         waypoint_msg.pose.position.y = y
                         waypoint_msg.pose.position.z = 0.0
                         self.waypoints.append(waypoint_msg)
-                        # Add coordinates to visited set
-                        visited_coordinates.add((self.origin_x, self.origin_y))
 
         self.waypoints = self.remove_unreachable_poses(
             self.waypoints, self.cell_size)
@@ -150,6 +139,8 @@ class OccupancyMapSlicer(Node):
             self.waypoints, self.cell_size)
         self.get_logger().info(f'Length of waypoints: {len(self.waypoints)}')
         self.publish_markers()
+
+        self.poses_to_numpy_array(self.waypoints)
 
         return response
 
@@ -225,6 +216,87 @@ class OccupancyMapSlicer(Node):
                 return False
             else:
                 return True
+
+    # def reorder_poses_as_hamiltonian_cycle(self, poses):
+    #     # Reorder poses to form a Hamiltonian cycle
+    #     # (This is a simplified approach and may not find the optimal solution)
+    #     reordered_poses = np.array([])
+    #     poses_copy = poses.copy()  # Make a copy to avoid modifying the original list
+
+    #     visited_x_vals = set()  # Initialize set to store visited coordinates
+    #     for k, current_pose in enumerate(poses_copy):
+    #         x_current = current_pose.pose.position.x
+    #         y_current = current_pose.pose.position.y
+
+    #         if x_current not in visited_x_vals:
+    #             # Add coordinates to visited set
+    #             visited_x_vals.add(x_current)
+
+    #     return reordered_poses
+    def remove_none(self, array):
+        """
+        Remove None values from a numpy array.
+
+        Args:
+            array (numpy.ndarray): Input numpy array.
+
+        Returns:
+            numpy.ndarray: Numpy array with None values removed.
+        """
+        return array[array != None]
+
+    def poses_to_numpy_array(self, poses):
+        # Extract x values from poses
+        x_values = [curr_pose.pose.position.x for curr_pose in poses]
+
+        # Get unique x values and sort them
+        unique_x_values = sorted(set(x_values))
+
+        # Create a 2D numpy array
+        max_poses_per_x = max(x_values.count(x) for x in unique_x_values)
+        array = np.empty((len(unique_x_values), max_poses_per_x), dtype=object)
+
+        # Fill the array with poses
+        for i, x in enumerate(unique_x_values):
+            poses_at_x = [
+                curr_pose for curr_pose in poses if curr_pose.pose.position.x == x]
+            array[i, :len(poses_at_x)] = poses_at_x
+
+            # Reverse the order of poses in odd-numbered arrays
+            if i % 2 == 1:
+                array[i, :len(poses_at_x)] = array[i, :len(poses_at_x)][::-1]
+
+        reshaped_array = array.reshape(-1)
+        array_no_none = self.remove_none(reshaped_array)
+        self.set_orientations(array_no_none)
+
+    def set_orientations(self, poses):
+        # Set quaternion orientations to point to the next waypoint in the list
+        oriented_poses = poses.copy()  # Make a copy to avoid modifying the original list
+
+        for i in range(len(oriented_poses) - 1):
+            current_pose = oriented_poses[i]
+            next_pose = oriented_poses[i + 1]
+
+            # Calculate the orientation (quaternion) to point from current_pose to next_pose
+            dx = next_pose.pose.position.x - current_pose.pose.position.x
+            dy = next_pose.pose.position.y - current_pose.pose.position.y
+            yaw = math.atan2(dy, dx)
+
+            # Convert yaw to a quaternion
+            quaternion = Quaternion()
+            quaternion.x = 0.0
+            quaternion.y = 0.0
+            quaternion.z = math.sin(yaw / 2)
+            quaternion.w = math.cos(yaw / 2)
+
+            # Set the orientation of the current pose
+            oriented_poses[i].pose.orientation = quaternion
+
+        # For the last pose, set the orientation to match the orientation of the second-to-last pose
+        oriented_poses[-1].pose.orientation = oriented_poses[-2].pose.orientation
+
+        self.publish_arrows(oriented_poses)
 
     def travel_callback(self, request, response):
         qx, qy, qz, qw = self.euler_to_quaternion(yaw=self.theta)
@@ -386,6 +458,35 @@ class OccupancyMapSlicer(Node):
             marker.color.b = b
             marker.color.a = 0.1 + \
                 (0.8*(idx/len(self.waypoints)))  # Fully opaque
+            marker_array.markers.append(marker)
+
+        self.marker_publisher.publish(marker_array)
+
+    def publish_arrows(self, waypoints):
+        # Publish waypoints as markers
+        marker_array = MarkerArray()
+        for idx, waypoint in enumerate(waypoints):
+            marker = Marker()
+            marker.header = waypoint.header
+            marker.ns = 'waypoints2'
+            marker.id = idx
+            marker.type = Marker.ARROW
+            marker.action = Marker.ADD
+            marker.pose.position.x = waypoint.pose.position.x
+            marker.pose.position.y = waypoint.pose.position.y
+            marker.pose.position.z = 0.2
+            marker.pose.orientation.x = waypoint.pose.orientation.x
+            marker.pose.orientation.y = waypoint.pose.orientation.y
+            marker.pose.orientation.z = waypoint.pose.orientation.z
+            marker.pose.orientation.w = waypoint.pose.orientation.w
+            marker.scale.x = self.cell_size/2  # Diameter of the cylinder
+            marker.scale.y = self.cell_size/8
+            marker.scale.z = self.cell_size/8
+            marker.color.r = 0.0  # Green color
+            marker.color.g = 1.0
+            marker.color.b = 0.0
+            marker.color.a = 0.15 + \
+                (0.8*(idx/len(waypoints)))  # Fully opaque
             marker_array.markers.append(marker)
 
         self.marker_publisher.publish(marker_array)
