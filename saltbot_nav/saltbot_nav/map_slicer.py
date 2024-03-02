@@ -1,16 +1,27 @@
 import rclpy
 from rclpy.node import Node
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from nav_msgs.msg import OccupancyGrid
-from geometry_msgs.msg import PointStamped, Pose, PoseStamped, Quaternion
+from geometry_msgs.msg import PointStamped, PoseStamped, Quaternion
 from visualization_msgs.msg import Marker, MarkerArray
 import numpy as np
 from std_srvs.srv import Empty
+from std_msgs.msg import String
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
-from nav2_simple_commander.robot_navigator import BasicNavigator
-from nav2_msgs.action import NavigateToPose
+# from nav2_simple_commander.robot_navigator import BasicNavigator
+from saltbot_nav_cpp.srv import NavToPose
+from enum import Enum, auto
 import math
+
+
+class State(Enum):
+    """Create the states of the node to determine whether the robot is deciding to catch,
+    moving to the brick, or depositing the brick once it has caught it."""
+    IDLE = auto(),
+    SEND_GOAL = auto(),
+    AWAIT_COMPLETION = auto()
 
 
 class OccupancyMapSlicer(Node):
@@ -19,15 +30,22 @@ class OccupancyMapSlicer(Node):
         self.cell_size = 0.75
         self.get_logger().info(f"Cell size: {self.cell_size}")
 
+        self.cb_group1 = MutuallyExclusiveCallbackGroup()
+        self.cb_group2 = MutuallyExclusiveCallbackGroup()
+
+        self.timer = self.create_timer(0.5, self.timer_callback)
+
+        self.state = State.IDLE
+
         self.subscription = self.create_subscription(
             OccupancyGrid,
             '/map',
             self.occupancy_map_callback,
             10)
-        self.cost_subscription = self.create_subscription(
-            OccupancyGrid,
-            '/global_costmap/costmap',
-            self.global_costmap_callback,
+        self.saltbot_goal_bool = self.create_subscription(
+            String,
+            'saltbot_goal',
+            self.saltbot_goal_callback,
             10)
         self.publisher = self.create_publisher(
             PointStamped,
@@ -38,20 +56,25 @@ class OccupancyMapSlicer(Node):
             '/visualization_markers',
             10)
         self.waypoint_srv = self.create_service(
-            Empty, "create_waypoints", self.waypoints_callback)
+            Empty, "create_waypoints", self.waypoints_callback, callback_group=self.cb_group1)
 
         self.fake_waypoint_srv = self.create_service(
-            Empty, "fake_waypoints", self.fake_waypoints)
+            Empty, "fake_waypoints", self.fake_waypoints, callback_group=self.cb_group1)
 
         self.lean_waypoint_srv = self.create_service(
-            Empty, "lean_waypoints", self.lean_waypoints_callback)
+            Empty, "lean_waypoints", self.lean_waypoints_callback, callback_group=self.cb_group1)
 
         self.travel_srv = self.create_service(
-            Empty, "travel", self.travel_callback)
+            Empty, "travel", self.travel_callback, callback_group=self.cb_group1)
+
+        self.send_goal = self.create_client(
+            NavToPose, 'saltbot_nav_to_pose', callback_group=self.cb_group2)
 
         # initialize waypoint list
         self.waypoints = []
-        self.nav = BasicNavigator()
+        self.proper_poses = []
+        self.waypoint_return_string = False
+        self.current_waypoint_no = 0
 
         # create tf
         self.tf_buffer = Buffer()
@@ -71,6 +94,52 @@ class OccupancyMapSlicer(Node):
             self.init_x = 0.0
             self.init_y = 0.0
             self.theta = 0.0
+
+    def timer_callback(self):
+        """Timer at 2Hz for sending waypoints"""
+        if self.state == State.IDLE:
+            pass
+        elif self.state == State.SEND_GOAL:
+            self.send_waypoint()
+            self.state = State.AWAIT_COMPLETION
+        elif self.state == State.AWAIT_COMPLETION:
+            self.get_logger().info(
+                f"Awaiting arrival at waypoint: {self.current_waypoint_no}")
+
+    def saltbot_goal_callback(self, msg):
+        # Callback for the waypoint goal
+        self.waypoint_return_string = msg
+        if self.waypoint_return_string == "Succeeded":
+            if self.current_waypoint_no < len(self.proper_poses):
+                self.get_logger().info(
+                    f"Reached waypoint: {self.current_waypoint_no}. Sending next...")
+                self.current_waypoint_no += 1
+                self.state = State.SEND_GOAL
+            else:
+                self.get_logger().info("All waypoints met. Going idle...")
+                self.current_waypoint_no = 0
+        elif self.waypoint_return_string == "Aborted":
+            self.get_logger().info(
+                f"Aborted travel to waypoint: {self.current_waypoint_no}. Going idle...")
+            self.current_waypoint_no = 0
+            self.state = State.IDLE
+        elif self.waypoint_return_string == "Canceled":
+            self.get_logger().info(
+                f"Canceled travel to waypoint: {self.current_waypoint_no}. Going idle...")
+            self.current_waypoint_no = 0
+            self.state = State.IDLE
+
+    async def send_waypoint(self):
+        message = NavToPose.Request()
+        message.x = self.proper_poses[self.current_waypoint_no].pose.position.x
+        message.y = self.proper_poses[self.current_waypoint_no].pose.position.y
+        q = self.proper_poses[self.current_waypoint_no].pose.orientation
+        message.theta = math.atan2(
+            2.0*(q.y*q.z + q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z)
+        await self.send_goal.call_async(message)
+        # rclpy.spin_until_future_complete(self, self.future)
+        self.get_logger().info(
+            "Future result from pose service: Complete")
 
     def euler_to_quaternion(self, yaw=0.0, pitch=0.0, roll=0.0):
 
@@ -96,18 +165,6 @@ class OccupancyMapSlicer(Node):
         self.width = msg.info.width
         self.msg_header = msg.header
         self.get_logger().info(f"Got map with height {self.height}")
-
-    def global_costmap_callback(self, msg):
-        # Callback for the global costmap subscription
-        self.gcmap_data = np.array(msg.data).reshape(
-            (msg.info.height, msg.info.width))
-        self.gcresolution = msg.info.resolution
-        self.gcorigin_x = msg.info.origin.position.x
-        self.gcorigin_y = msg.info.origin.position.y
-        self.gcheight = msg.info.height
-        self.gcwidth = msg.info.width
-        self.gcmsg_header = msg.header
-        self.get_logger().info(f"Got costmap with height {self.height}")
 
     def lean_waypoints_callback(self, request, response):
         self.get_logger().info('Creating waypoints...')
@@ -217,22 +274,6 @@ class OccupancyMapSlicer(Node):
             else:
                 return True
 
-    # def reorder_poses_as_hamiltonian_cycle(self, poses):
-    #     # Reorder poses to form a Hamiltonian cycle
-    #     # (This is a simplified approach and may not find the optimal solution)
-    #     reordered_poses = np.array([])
-    #     poses_copy = poses.copy()  # Make a copy to avoid modifying the original list
-
-    #     visited_x_vals = set()  # Initialize set to store visited coordinates
-    #     for k, current_pose in enumerate(poses_copy):
-    #         x_current = current_pose.pose.position.x
-    #         y_current = current_pose.pose.position.y
-
-    #         if x_current not in visited_x_vals:
-    #             # Add coordinates to visited set
-    #             visited_x_vals.add(x_current)
-
-    #     return reordered_poses
     def remove_none(self, array):
         """
         Remove None values from a numpy array.
@@ -296,74 +337,14 @@ class OccupancyMapSlicer(Node):
         # For the last pose, set the orientation to match the orientation of the second-to-last pose
         oriented_poses[-1].pose.orientation = oriented_poses[-2].pose.orientation
 
+        self.proper_poses = oriented_poses
+
         self.publish_arrows(oriented_poses)
 
     def travel_callback(self, request, response):
-        qx, qy, qz, qw = self.euler_to_quaternion(yaw=self.theta)
-        q = Quaternion(x=qx, y=qy, z=qz, w=qw)
-        point = PointStamped()
-        point.header = self.msg_header
-        point.point.x = self.init_x
-        point.point.y = self.init_y
-        point.point.z = 0.0
-        init_pose = PoseStamped(position=point, orientation=q)
-        self.nav.setInitialPose(init_pose)
-        self.nav.waitUntilNav2Active()  # if autostarted, else use lifecycleStartup()
-
-        # path = self.nav.getPath(init_pose, goal_pose)
-        # smoothed_path = self.nav.smoothPath(path)
-
-        last_point = point
-        # ...
-        for n in range(0, len(self.waypoints)):
-            next_point = self.waypoints[n]
-            v_head = [last_point.point.x, last_point.point.y]
-            vi = [next_point.point.x, next_point.point.y]
-            theta_turn = math.atan2(np.linalg.det(
-                [v_head, vi]), np.dot(v_head, vi))
-            qx, qy, qz, qw = self.euler_to_quaternion(yaw=theta_turn)
-            q = Quaternion(x=qx, y=qy, z=qz, w=qw)
-            goal_pose = PoseStamped(position=next_point, orientation=q)
-            self.nav.goToPose(goal_pose)
-            while not self.nav.isTaskComplete():
-                feedback = self.nav.getFeedback()
-                if feedback.navigation_duration > 60:
-                    self.nav.cancelTask()
-
-            # ...
-
-            result = self.nav.getResult()
-            if result == TaskResult.SUCCEEDED:
-                print('Goal succeeded!')
-            elif result == TaskResult.CANCELED:
-                print('Goal was canceled!')
-            elif result == TaskResult.FAILED:
-                print('Goal failed!')
-            last_point = next_point
-
-    def goToPose(self, pose):
-        # Sends a `NavToPose` action request and waits for completion
-        self.get_logger().info("Waiting for 'NavigateToPose' action server")
-        while not self.nav_to_pose_client.wait_for_server(timeout_sec=1.0):
-            self.get_logger().info("'NavigateToPose' action server not available, waiting...")
-
-        goal_msg = NavigateToPose.Goal()
-        goal_msg.pose = pose
-
-        self.get_logger().info('Navigating to goal: ' + str(pose.pose.position.x) + ' ' +
-                               str(pose.pose.position.y) + '...')
-        send_goal_future = self.nav_to_pose_client.send_goal_async(goal_msg,
-                                                                   self._feedbackCallback)
-        rclpy.spin_until_future_complete(self, send_goal_future)
-        self.goal_handle = send_goal_future.result()
-
-        if not self.goal_handle.accepted:
-            self.get_logger().error('Goal to ' + str(pose.pose.position.x) + ' ' +
-                                    str(pose.pose.position.y) + ' was rejected!')
-            return False
-
-        self.result_future = self.goal_handle.get_result_async()
-        return True
+        """Sends the 0th waypoint to the nav node"""
+        self.state = State.SEND_GOAL
+        return response
 
     def waypoints_callback(self, request, response):
 

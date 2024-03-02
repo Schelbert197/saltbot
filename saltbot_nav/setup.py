@@ -11,10 +11,14 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch',
-         ['launch/saltbot_visual.launch.xml', 'launch/localization_launch.py', 'launch/navigation_launch.py',
-          'launch/jackal_nav.launch.py']),
+         ['launch/saltbot_visual.launch.xml',
+          'launch/localization_launch.py',
+          'launch/navigation_launch.py',
+          'launch/jackal_nav.launch.py',
+          'launch/bringup_launch.py',
+          'launch/rviz_launch.py']),
         ('share/' + package_name + '/config',
-         ['config/saltbot.rviz', 'config/nav2_params.yaml']),
+         ['config/nav2_config.rviz', 'config/nav2_params.yaml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -25,7 +29,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'navigator = saltbot_nav.navigator:main',
+            'navigator2 = saltbot_nav.navigator2:main',
             'laser2grid = saltbot_nav.laser2grid:main',
             'map_slicer = saltbot_nav.map_slicer:main',
             'map_publisher = saltbot_nav.map_publisher:main'
