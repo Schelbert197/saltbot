@@ -159,7 +159,7 @@ private:
     switch (result.code) {
       case rclcpp_action::ResultCode::SUCCEEDED:
         RCLCPP_INFO(this->get_logger(), "Goal succeeded");
-        saltbot_goal_msg_.data = "Suceeded";
+        saltbot_goal_msg_.data = "Succeeded";
         pub_waypoint_goal_->publish(saltbot_goal_msg_);
         break;
       case rclcpp_action::ResultCode::ABORTED:

@@ -95,12 +95,12 @@ class OccupancyMapSlicer(Node):
             self.init_y = 0.0
             self.theta = 0.0
 
-    def timer_callback(self):
+    async def timer_callback(self):
         """Timer at 2Hz for sending waypoints"""
         if self.state == State.IDLE:
             pass
         elif self.state == State.SEND_GOAL:
-            self.send_waypoint()
+            await self.send_waypoint()
             self.state = State.AWAIT_COMPLETION
         elif self.state == State.AWAIT_COMPLETION:
             self.get_logger().info(
@@ -108,8 +108,11 @@ class OccupancyMapSlicer(Node):
 
     def saltbot_goal_callback(self, msg):
         # Callback for the waypoint goal
-        self.waypoint_return_string = msg
+        self.waypoint_return_string = msg.data
+        self.get_logger().info(
+            f"Return message recieved: {msg} Data: {self.waypoint_return_string}")
         if self.waypoint_return_string == "Succeeded":
+            self.get_logger().info("Goal Succeeded message recieved")
             if self.current_waypoint_no < len(self.proper_poses):
                 self.get_logger().info(
                     f"Reached waypoint: {self.current_waypoint_no}. Sending next...")
