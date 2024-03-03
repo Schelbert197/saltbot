@@ -114,6 +114,7 @@ private:
     goal_msg_.pose.pose.position.x = request->x;
     goal_msg_.pose.pose.position.y = request->y;
     goal_msg_.pose.pose.orientation = rpy_to_quaternion(0.0, 0.0, request->theta);
+    RCLCPP_INFO(this->get_logger(), "Quaternion: x:%f, y:%f, z:%f, w:%f", goal_msg_.pose.pose.orientation.x, goal_msg_.pose.pose.orientation.y, goal_msg_.pose.pose.orientation.z, goal_msg_.pose.pose.orientation.w);
 
     //Initiate action call
     state_next_ = State::SEND_GOAL;

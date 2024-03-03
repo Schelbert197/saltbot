@@ -75,6 +75,7 @@ class OccupancyMapSlicer(Node):
         self.proper_poses = []
         self.waypoint_return_string = False
         self.current_waypoint_no = 0
+        self.reset_on_abort = False
 
         # create tf
         self.tf_buffer = Buffer()
@@ -122,10 +123,21 @@ class OccupancyMapSlicer(Node):
                 self.get_logger().info("All waypoints met. Going idle...")
                 self.current_waypoint_no = 0
         elif self.waypoint_return_string == "Aborted":
-            self.get_logger().info(
-                f"Aborted travel to waypoint: {self.current_waypoint_no}. Going idle...")
-            self.current_waypoint_no = 0
-            self.state = State.IDLE
+            if self.reset_on_abort == False:
+                self.get_logger().info("Goal Aborted message recieved")
+                if self.current_waypoint_no < len(self.proper_poses):
+                    self.get_logger().info(
+                        f"Aborted waypoint: {self.current_waypoint_no}. Sending next...")
+                    self.current_waypoint_no += 1
+                    self.state = State.SEND_GOAL
+                else:
+                    self.get_logger().info("All waypoints met. Going idle...")
+                    self.current_waypoint_no = 0
+            else:
+                self.get_logger().info(
+                    f"Aborted travel to waypoint: {self.current_waypoint_no}. Going idle...")
+                self.current_waypoint_no = 0
+                self.state = State.IDLE
         elif self.waypoint_return_string == "Canceled":
             self.get_logger().info(
                 f"Canceled travel to waypoint: {self.current_waypoint_no}. Going idle...")
@@ -137,8 +149,12 @@ class OccupancyMapSlicer(Node):
         message.x = self.proper_poses[self.current_waypoint_no].pose.position.x
         message.y = self.proper_poses[self.current_waypoint_no].pose.position.y
         q = self.proper_poses[self.current_waypoint_no].pose.orientation
-        message.theta = math.atan2(
-            2.0*(q.y*q.z + q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z)
+        self.get_logger().info(f"Q: {q}")
+        # message.theta = math.atan2(
+        #     2.0*(q.y*q.z + q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z)
+        X, Y, message.theta = self.quaternion_to_euler_angle(
+            q.w, q.x, q.y, q.z)
+        self.get_logger().info(f"Theta: {message.theta}")
         await self.send_goal.call_async(message)
         # rclpy.spin_until_future_complete(self, self.future)
         self.get_logger().info(
@@ -157,6 +173,24 @@ class OccupancyMapSlicer(Node):
 
         return qx, qy, qz, qw
 
+    def quaternion_to_euler_angle(self, w, x, y, z):
+        ysqr = y * y
+
+        t0 = +2.0 * (w * x + y * z)
+        t1 = +1.0 - 2.0 * (x * x + ysqr)
+        X = math.degrees(math.atan2(t0, t1))
+
+        t2 = +2.0 * (w * y - z * x)
+        t2 = +1.0 if t2 > +1.0 else t2
+        t2 = -1.0 if t2 < -1.0 else t2
+        Y = math.degrees(math.asin(t2))
+
+        t3 = +2.0 * (w * z + x * y)
+        t4 = +1.0 - 2.0 * (ysqr + z * z)
+        Z = math.degrees(math.atan2(t3, t4))
+
+        return X, Y, Z
+
     def occupancy_map_callback(self, msg):
         # Callback for the map subscription
         self.map_data = np.array(msg.data).reshape(
@@ -173,6 +207,7 @@ class OccupancyMapSlicer(Node):
         self.get_logger().info('Creating waypoints...')
         # Extract waypoints from occupancy grid map
         self.waypoints = []
+        self.proper_poses = []
         # Publish waypoints
 
         total_cells_width = int(self.width/(self.cell_size / self.resolution))
@@ -390,6 +425,8 @@ class OccupancyMapSlicer(Node):
         return response
 
     def fake_waypoints(self, request, response):
+        self.waypoints = []
+        self.proper_poses = []
         try:
             self.t = self.tf_buffer.lookup_transform(
                 'base_link',
@@ -405,15 +442,24 @@ class OccupancyMapSlicer(Node):
             self.init_y = 0.0
             self.theta = 0.0
         for i in range(0, 3):
-            waypoint_msg = PointStamped()
+            waypoint_msg = PoseStamped()
             waypoint_msg.header = self.msg_header
-            waypoint_msg.point.x = (
+            waypoint_msg.pose.position.x = (
                 self.init_x + (self.cell_size * i)) * math.cos(self.theta)
-            waypoint_msg.point.y = (
+            waypoint_msg.pose.position.y = (
                 self.init_y + (self.cell_size * i)) * math.sin(self.theta)
-            waypoint_msg.point.z = 0.0
+            waypoint_msg.pose.position.z = 0.0
+            qx, qy, qz, qw = self.euler_to_quaternion(
+                yaw=self.theta, pitch=0.0, roll=0.0)
+            waypoint_msg.pose.orientation.x = qx
+            waypoint_msg.pose.orientation.y = qy
+            waypoint_msg.pose.orientation.z = qz
+            waypoint_msg.pose.orientation.w = qw
             self.waypoints.append(waypoint_msg)
         self.get_logger().info(f'Length of waypoints: {len(self.waypoints)}')
+        self.proper_poses = self.waypoints
+
+        self.publish_arrows(self.proper_poses)
         self.publish_markers()
         return response
 
