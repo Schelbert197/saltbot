@@ -1,3 +1,26 @@
+"""
+Creates the global plan for the saltbot and manages the overall state during
+navigation.
+
+PUBLISHERS:
+  + /visualization_markers (MarkerArray) - The markers to show the path
+
+SUBSCRIBERS:
+  + /map (OccupancyGrid) - Receives the occupancy grid map
+  + /saltbot_goal (String) - Receives waypoint goal messages
+
+SERVICES:
+  + create_waypoints (Empty) - Generates waypoints based on unoccupied cells
+    in the map
+  + fake_waypoints (Empty) - Generates fake waypoints for testing purposes
+  + lean_waypoints (Empty) - Generates waypoints with a more optimized
+    distribution based on the unoccupied cells
+  + travel (Empty) - Initiates the navigation to the generated waypoints
+
+PARAMETERS:
+  + none
+"""
+
 import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -10,15 +33,13 @@ from std_msgs.msg import String
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
-# from nav2_simple_commander.robot_navigator import BasicNavigator
 from saltbot_nav_cpp.srv import NavToPose
 from enum import Enum, auto
 import math
 
 
 class State(Enum):
-    """Create the states of the node to determine whether the robot is deciding to catch,
-    moving to the brick, or depositing the brick once it has caught it."""
+    """Create the states defining whether the robot is moving to a goal."""
     IDLE = auto(),
     SEND_GOAL = auto(),
     AWAIT_COMPLETION = auto()
@@ -37,35 +58,49 @@ class OccupancyMapSlicer(Node):
 
         self.state = State.IDLE
 
+        # Publishers
+        self.marker_publisher = self.create_publisher(
+            MarkerArray,
+            '/visualization_markers',
+            10)
+
+        # Subscribers
         self.subscription = self.create_subscription(
             OccupancyGrid,
             '/map',
             self.occupancy_map_callback,
             10)
+
         self.saltbot_goal_bool = self.create_subscription(
             String,
             'saltbot_goal',
             self.saltbot_goal_callback,
             10)
-        self.publisher = self.create_publisher(
-            PointStamped,
-            'waypoints',  # Change 'waypoints' to the desired topic name
-            10)
-        self.marker_publisher = self.create_publisher(
-            MarkerArray,
-            '/visualization_markers',
-            10)
+
+        # Services
         self.waypoint_srv = self.create_service(
-            Empty, "create_waypoints", self.waypoints_callback, callback_group=self.cb_group1)
+            Empty,
+            "create_waypoints",
+            self.waypoints_callback,
+            callback_group=self.cb_group1)
 
         self.fake_waypoint_srv = self.create_service(
-            Empty, "fake_waypoints", self.fake_waypoints, callback_group=self.cb_group1)
+            Empty,
+            "fake_waypoints",
+            self.fake_waypoints,
+            callback_group=self.cb_group1)
 
         self.lean_waypoint_srv = self.create_service(
-            Empty, "lean_waypoints", self.lean_waypoints_callback, callback_group=self.cb_group1)
+            Empty,
+            "lean_waypoints",
+            self.lean_waypoints_callback,
+            callback_group=self.cb_group1)
 
         self.travel_srv = self.create_service(
-            Empty, "travel", self.travel_callback, callback_group=self.cb_group1)
+            Empty,
+            "travel",
+            self.travel_callback,
+            callback_group=self.cb_group1)
 
         self.send_goal = self.create_client(
             NavToPose, 'saltbot_nav_to_pose', callback_group=self.cb_group2)
@@ -108,10 +143,12 @@ class OccupancyMapSlicer(Node):
                 f"Awaiting arrival at waypoint: {self.current_waypoint_no}")
 
     def saltbot_goal_callback(self, msg):
-        # Callback for the waypoint goal
+        """Callback for the waypoint goal message."""
         self.waypoint_return_string = msg.data
         self.get_logger().info(
             f"Return message recieved: {msg} Data: {self.waypoint_return_string}")
+
+        # Move to next waypoint or end if succeeded
         if self.waypoint_return_string == "Succeeded":
             self.get_logger().info("Goal Succeeded message recieved")
             if self.current_waypoint_no < len(self.proper_poses):
@@ -122,6 +159,8 @@ class OccupancyMapSlicer(Node):
             else:
                 self.get_logger().info("All waypoints met. Going idle...")
                 self.current_waypoint_no = 0
+
+        # Move to next waypoint or give up if aborted
         elif self.waypoint_return_string == "Aborted":
             if self.reset_on_abort == False:
                 self.get_logger().info("Goal Aborted message recieved")
@@ -138,6 +177,8 @@ class OccupancyMapSlicer(Node):
                     f"Aborted travel to waypoint: {self.current_waypoint_no}. Going idle...")
                 self.current_waypoint_no = 0
                 self.state = State.IDLE
+
+        # Reset if the mission is canceled
         elif self.waypoint_return_string == "Canceled":
             self.get_logger().info(
                 f"Canceled travel to waypoint: {self.current_waypoint_no}. Going idle...")
@@ -192,7 +233,7 @@ class OccupancyMapSlicer(Node):
         return X, Y, Z
 
     def occupancy_map_callback(self, msg):
-        # Callback for the map subscription
+        """Callback for the map subscription."""
         self.map_data = np.array(msg.data).reshape(
             (msg.info.height, msg.info.width))
         self.resolution = msg.info.resolution
@@ -204,16 +245,19 @@ class OccupancyMapSlicer(Node):
         self.get_logger().info(f"Got map with height {self.height}")
 
     def lean_waypoints_callback(self, request, response):
+        """Callback for the lean_waypoints service."""
         self.get_logger().info('Creating waypoints...')
-        # Extract waypoints from occupancy grid map
+
+        # Initialize lists
         self.waypoints = []
         self.proper_poses = []
-        # Publish waypoints
 
+        # Get maxima
         total_cells_width = int(self.width/(self.cell_size / self.resolution))
         total_cells_height = int(
             self.height/(self.cell_size / self.resolution))
 
+        # Iterate through in each direction
         for c in range(total_cells_height):
             for d in range(total_cells_width):
                 x = self.origin_x + (self.cell_size * d)
@@ -228,10 +272,13 @@ class OccupancyMapSlicer(Node):
                         waypoint_msg.pose.position.z = 0.0
                         self.waypoints.append(waypoint_msg)
 
+        # Remove unreachable poses twice to ensure fidelity
         self.waypoints = self.remove_unreachable_poses(
             self.waypoints, self.cell_size)
         self.waypoints = self.remove_unreachable_poses(
             self.waypoints, self.cell_size)
+
+        # Print and publish
         self.get_logger().info(f'Length of waypoints: {len(self.waypoints)}')
         self.publish_markers()
 
@@ -240,6 +287,7 @@ class OccupancyMapSlicer(Node):
         return response
 
     def remove_unreachable_poses(self, poses, cell_size):
+        """Removes unreachable waypoints."""
         # Initialize a list to store reachable poses
         reachable_poses = []
 
@@ -254,7 +302,7 @@ class OccupancyMapSlicer(Node):
                 if this_pose == other_pose:
                     continue  # Skip comparing the pose with itself
 
-                # Calculate the distance between the current pose and other_pose
+                # Calculate distance between the current pose and other_pose
                 dx = this_pose.pose.position.x - other_pose.pose.position.x
                 dy = this_pose.pose.position.y - other_pose.pose.position.y
                 distance = math.sqrt(dx ** 2 + dy ** 2)
@@ -273,9 +321,10 @@ class OccupancyMapSlicer(Node):
         return reachable_poses
 
     def translate_to_map(self, x, y):
-        """ Get the indices of an x,y coordinate"""
+        """Get the map indices of an x,y coordinate"""
         j = int((x - self.origin_x)/self.resolution - 0.5)
         i = int((y - self.origin_y)/self.resolution - 0.5)
+
         if i > self.height:
             i = self.height - 1
         if j > self.width:
@@ -285,6 +334,7 @@ class OccupancyMapSlicer(Node):
 
     def check_area(self, x, y):
         """ Confirm that the area around a coordinate is valid"""
+        # Check appropriate neighbor grid cells
         iup, jup = self.translate_to_map(x, y + (self.cell_size/2))
         idown, jdown = self.translate_to_map(x, y - (self.cell_size/2))
         iright, jright = self.translate_to_map(x + (self.cell_size/2), y)
@@ -313,24 +363,16 @@ class OccupancyMapSlicer(Node):
                 return True
 
     def remove_none(self, array):
-        """
-        Remove None values from a numpy array.
-
-        Args:
-            array (numpy.ndarray): Input numpy array.
-
-        Returns:
-            numpy.ndarray: Numpy array with None values removed.
-        """
+        """Remove None values from a numpy array."""
         return array[array != None]
 
     def poses_to_numpy_array(self, poses):
+        """Translates poses to np array and flips to mower pattern."""
         # Extract x values from poses
         x_values = [curr_pose.pose.position.x for curr_pose in poses]
 
         # Get unique x values and sort them
         unique_x_values = sorted(set(x_values))
-
         # Create a 2D numpy array
         max_poses_per_x = max(x_values.count(x) for x in unique_x_values)
         array = np.empty((len(unique_x_values), max_poses_per_x), dtype=object)
@@ -350,14 +392,16 @@ class OccupancyMapSlicer(Node):
         self.set_orientations(array_no_none)
 
     def set_orientations(self, poses):
-        # Set quaternion orientations to point to the next waypoint in the list
-        oriented_poses = poses.copy()  # Make a copy to avoid modifying the original list
+        """Set orientations to point to the next waypoint in the list."""
+        # Make a copy to avoid modifying the original list
+        oriented_poses = poses.copy()
 
         for i in range(len(oriented_poses) - 1):
             current_pose = oriented_poses[i]
             next_pose = oriented_poses[i + 1]
 
-            # Calculate the orientation (quaternion) to point from current_pose to next_pose
+            # Calculate the orientation (quaternion) to point
+            # from current_pose to next_pose
             dx = next_pose.pose.position.x - current_pose.pose.position.x
             dy = next_pose.pose.position.y - current_pose.pose.position.y
             yaw = math.atan2(dy, dx)
@@ -372,11 +416,10 @@ class OccupancyMapSlicer(Node):
             # Set the orientation of the current pose
             oriented_poses[i].pose.orientation = quaternion
 
-        # For the last pose, set the orientation to match the orientation of the second-to-last pose
+        # For the last pose, set the orientation to match
+        # the orientation of the second-to-last pose
         oriented_poses[-1].pose.orientation = oriented_poses[-2].pose.orientation
-
         self.proper_poses = oriented_poses
-
         self.publish_arrows(oriented_poses)
 
     def travel_callback(self, request, response):
@@ -425,8 +468,11 @@ class OccupancyMapSlicer(Node):
         return response
 
     def fake_waypoints(self, request, response):
+        """Create fake waypoints for testing purposes."""
         self.waypoints = []
         self.proper_poses = []
+
+        # Get robot tf if available
         try:
             self.t = self.tf_buffer.lookup_transform(
                 'base_link',
@@ -441,6 +487,8 @@ class OccupancyMapSlicer(Node):
             self.init_x = 0.0
             self.init_y = 0.0
             self.theta = 0.0
+
+        # Make 3 waypoints
         for i in range(0, 3):
             waypoint_msg = PoseStamped()
             waypoint_msg.header = self.msg_header
@@ -464,7 +512,7 @@ class OccupancyMapSlicer(Node):
         return response
 
     def publish_markers(self, r=0.5, g=0.0, b=0.5):
-        # Publish waypoints as markers
+        """Publish waypoints as markers"""
         marker_array = MarkerArray()
         for idx, waypoint in enumerate(self.waypoints):
             marker = Marker()
@@ -493,7 +541,7 @@ class OccupancyMapSlicer(Node):
         self.marker_publisher.publish(marker_array)
 
     def publish_arrows(self, waypoints):
-        # Publish waypoints as markers
+        """Publish waypoint poses as markers"""
         marker_array = MarkerArray()
         for idx, waypoint in enumerate(waypoints):
             marker = Marker()
