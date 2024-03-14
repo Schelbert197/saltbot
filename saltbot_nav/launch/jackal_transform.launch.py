@@ -13,35 +13,36 @@ def generate_launch_description():
         DeclareLaunchArgument(
             name='publish_static_tf',
             default_value='true',
-            choices=['true','false'],
+            choices=['true', 'false'],
             description='Publish a static transform between base_link and velodyne'
         ),
 
         DeclareLaunchArgument(
             name='use_unfiltered',
             default_value='false',
-            choices=['true','false'],
+            choices=['true', 'false'],
             description='Launch rtabmap with unfiltered point cloud'
         ),
 
         DeclareLaunchArgument(
             name='use_filtered',
             default_value='false',
-            choices=['true','false'],
+            choices=['true', 'false'],
             description='Launch rtabmap with filtered point cloud'
         ),
 
         Node(
-            package="tf2_ros",  
+            package="tf2_ros",
             executable="static_transform_publisher",
-            arguments=['--frame-id', 'base_link', '--child-frame-id', 'velodyne'],
+            arguments=['--frame-id', 'base_link',
+                       '--child-frame-id', 'velodyne'],
             condition=IfCondition(LaunchConfiguration('publish_static_tf'))
         ),
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution([
-                    FindPackageShare('jackal_3d_slam'),
+                    FindPackageShare('saltbot_nav'),
                     'launch',
                     'velodyne.launch.py'
                 ])
@@ -52,7 +53,7 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution([
-                    FindPackageShare('jackal_3d_slam'),
+                    FindPackageShare('saltbot_nav'),
                     'launch',
                     'filtered_velodyne.launch.py'
                 ])
