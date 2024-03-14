@@ -1,10 +1,14 @@
 <launch>
-
+<!-- 
     <arg name="rviz_config" default="$(find-pkg-share saltbot_nav)/config/saltbot.rviz" 
-        description=".rviz file to nav2 visualizer"/>
+        description=".rviz file to nav2 visualizer"/> -->
     
         
-    <node pkg="saltbot_nav" exec="rviz_launch.py" arg="$(find-pkg-share saltbot_nav)/config/saltbot.rviz" /> 
+    <!-- <include file="$(find-pkg-share saltbot_nav)/launch/rviz_launch.py" >
+        <arg name="rviz_config" value="-d $(find-pkg-share saltbot_nav)/config/saltbot.rviz" />  
+    </include>-->
+    <node name="rviz2" pkg="rviz2" exec="rviz2"
+        args="-d $(find-pkg-share saltbot_nav)/config/saltbot.rviz" />
     <!-- <include file="$(find-pkg-share nav2_bringup)/launch/rviz_launch.py"/> -->
         
     <node pkg="saltbot_nav" exec="map_slicer" />

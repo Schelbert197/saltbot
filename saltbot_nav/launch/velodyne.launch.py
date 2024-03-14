@@ -47,6 +47,7 @@ def generate_launch_description():
                 'OdomF2M/ScanSubtractRadius', '0.1',
                 'OdomF2M/ScanMaxSize', '15000',
                 'OdomF2M/BundleAdjustment', 'false',
+                'GridGlobal/Eroded', 'true',
             ]),
 
         Node(

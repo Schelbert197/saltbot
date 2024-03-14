@@ -97,6 +97,8 @@ def generate_launch_description():
                 'Icp/Strategy', '1',
                 'Icp/OutlierRatio', '0.7',
                 'Icp/CorrespondenceRatio', '0.2',
+                'GridGlobal/Eroded', 'true',
+
             ]),
 
         Node(
