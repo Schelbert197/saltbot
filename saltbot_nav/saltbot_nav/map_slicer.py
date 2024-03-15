@@ -101,6 +101,11 @@ class OccupancyMapSlicer(Node):
             "travel",
             self.travel_callback,
             callback_group=self.cb_group1)
+        self.cut_srv = self.create_service(
+            Empty,
+            "cut_first",
+            self.cut_first_waypoint_callback,
+            callback_group=self.cb_group1)
 
         self.send_goal = self.create_client(
             NavToPose, 'saltbot_nav_to_pose', callback_group=self.cb_group2)
@@ -539,6 +544,13 @@ class OccupancyMapSlicer(Node):
             marker_array.markers.append(marker)
 
         self.marker_publisher.publish(marker_array)
+
+    def cut_first_waypoint_callback(self):
+        """Remove the first waypoint from the list and republish"""
+        self.proper_poses.pop(0)
+        self.waypoints.pop(0)
+        self.publish_arrows(self.proper_poses)
+        self.publish_markers()
 
     def publish_arrows(self, waypoints):
         """Publish waypoint poses as markers"""

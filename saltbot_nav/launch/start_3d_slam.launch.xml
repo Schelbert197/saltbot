@@ -6,6 +6,5 @@
     </node>
 
     <include file="$(find-pkg-share velodyne)/launch/velodyne-all-nodes-VLP16-launch.py"/>
-    <include file="$(find-pkg-share jackal_robot)/launch/bringup.launch.py"/>
     <include file="$(find-pkg-share jackal_3d_slam)/launch/jackal_nav.launch.py"/>
 </launch>

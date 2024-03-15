@@ -1,0 +1,7 @@
+<launch>
+    <include file="$(find-pkg-share nav2_bringup)/launch/localization_launch.py">
+        <arg name='map' value="/home/jackal/clearpath_ws/src/maps/courtyard5.yaml"/>
+    </include>
+
+    <node pkg="tf2_ros" exec="static_transform_publisher" name="static_map_odom" args="0 0 0 0 0 0 map odom"/>
+</launch>
