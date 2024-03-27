@@ -28,7 +28,7 @@ from nav2_common.launch import ReplaceString
 
 def generate_launch_description():
     # Get the launch directory
-    bringup_dir = get_package_share_directory('nav2_bringup')
+    bringup_dir = get_package_share_directory('saltbot_nav')
 
     # Create the launch configuration variables
     namespace = LaunchConfiguration('namespace')
@@ -49,7 +49,8 @@ def generate_launch_description():
 
     declare_rviz_config_file_cmd = DeclareLaunchArgument(
         'rviz_config',
-        default_value=os.path.join(bringup_dir, 'rviz', 'nav2_default_view.rviz'),
+        default_value=os.path.join(
+            bringup_dir, 'config', 'saltbot.rviz'),
         description='Full path to the RVIZ config file to use')
 
     # Launch rviz
@@ -57,12 +58,12 @@ def generate_launch_description():
         condition=UnlessCondition(use_namespace),
         package='rviz2',
         executable='rviz2',
-        arguments=['-d', rviz_config_file],
+        arguments=[rviz_config_file],
         output='screen')
 
     namespaced_rviz_config_file = ReplaceString(
-            source_file=rviz_config_file,
-            replacements={'<robot_namespace>': ('/', namespace)})
+        source_file=rviz_config_file,
+        replacements={'<robot_namespace>': ('/', namespace)})
 
     start_namespaced_rviz_cmd = Node(
         condition=IfCondition(use_namespace),
